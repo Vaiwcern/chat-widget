@@ -227,15 +227,22 @@
                                 const eventText = line.substring(6);
                                 const data = JSON.parse(eventText);
                                 
-                                if (data.type === 'final_response') {
-                                    const responseData = JSON.parse(data.content);
-                                    const finalResponse = responseData.response;
-                                    const questions = responseData.recommend_next_questions || [];
+                                // New API format: type (notification | display) + format + content
+                                if (data.type === 'notification') {
+                                    // Update notification text in the timer message
+                                    this.updateNotificationText(botMessageId, data.content || '<đang xử lý>...');
+                                } else if (data.type === 'display') {
+                                    let content = data.content || '';
+                                    let isHtml = data.format === 'html';
                                     
-                                    this.updateMessage(botMessageId, finalResponse);
+                                    // Create a NEW message for this display
+                                    const displayMessageId = this.addMessage('', 'bot');
                                     
-                                    if (questions.length > 0) {
-                                        this.displaySuggestedQuestions(questions);
+                                    // Update with content
+                                    if (isHtml) {
+                                        this.updateMessage(displayMessageId, content);
+                                    } else {
+                                        this.updateMessage(displayMessageId, this.escapeHtml(content));
                                     }
                                 }
                             } catch (e) {
@@ -244,9 +251,39 @@
                         }
                     }
                 }
+                
+                // Process remaining data
+                if (fullText.trim()) {
+                    const line = fullText.trim();
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const eventText = line.substring(6);
+                            const data = JSON.parse(eventText);
+                            
+                            if (data.type === 'notification') {
+                                this.updateNotificationText(botMessageId, data.content || '<đang xử lý>...');
+                            } else if (data.type === 'display') {
+                                let content = data.content || '';
+                                let isHtml = data.format === 'html';
+                                
+                                const displayMessageId = this.addMessage('', 'bot');
+                                
+                                if (isHtml) {
+                                    this.updateMessage(displayMessageId, content);
+                                } else {
+                                    this.updateMessage(displayMessageId, this.escapeHtml(content));
+                                }
+                            }
+                        } catch (e) {
+                            console.error('Parse error:', e);
+                        }
+                    }
+                }
             } catch (error) {
                 this.updateMessage(botMessageId, 'Lỗi: ' + error.message);
             } finally {
+                // Clear notification text, keep only timer
+                this.clearNotificationText(botMessageId);
                 this.setStopMode(false);
             }
         },
@@ -278,6 +315,47 @@
                     p.innerHTML = this.sanitizeHtml(html);
                 }
                 this.scrollToBottom();
+            }
+        },
+
+        updateNotificationText: function(messageId, text) {
+            const msgDiv = document.getElementById(messageId);
+            if (msgDiv) {
+                const p = msgDiv.querySelector('p');
+                if (p) {
+                    // Find or create spinner
+                    let spinner = p.querySelector('.ai-hrm-spinner');
+                    if (!spinner) {
+                        spinner = document.createElement('span');
+                        spinner.className = 'ai-hrm-spinner';
+                        p.insertBefore(spinner, p.firstChild);
+                    }
+                    
+                    // Update or create processing-text
+                    let processingText = p.querySelector('.ai-hrm-processing-text');
+                    if (!processingText) {
+                        processingText = document.createElement('span');
+                        processingText.className = 'ai-hrm-processing-text';
+                        p.appendChild(processingText);
+                    }
+                    
+                    processingText.textContent = text || '<đang xử lý>...';
+                }
+                this.scrollToBottom();
+            }
+        },
+
+        clearNotificationText: function(messageId) {
+            const msgDiv = document.getElementById(messageId);
+            if (msgDiv) {
+                const p = msgDiv.querySelector('p');
+                if (p) {
+                    // Remove spinner and processing-text
+                    const spinner = p.querySelector('.ai-hrm-spinner');
+                    const processingText = p.querySelector('.ai-hrm-processing-text');
+                    if (spinner) spinner.remove();
+                    if (processingText) processingText.remove();
+                }
             }
         },
 

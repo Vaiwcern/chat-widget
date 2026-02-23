@@ -278,24 +278,39 @@ async function sendMessage() {
                         const data = JSON.parse(eventText);
                         console.log('Event received:', data);
                         
-                        if (data.type === 'agent_message') {
-                            // show spinner + streaming text from agent_message
-                            showProcessing(botMessageId, data.content || '<đang xử lý>...');
-                            console.log('Agent intermediate:', data.content);
-                        } else if (data.type === 'final_response') {
-                            const responseData = JSON.parse(data.content);
-                            const finalResponse = responseData.response;
-                            const recommendedQuestions = responseData.recommend_next_questions || [];
+                        // New API format: type (notification | display) + format + content
+                        if (data.type === 'notification') {
+                            // Update notification text in the timer message
+                            updateNotificationText(botMessageId, data.content || '<đang xử lý>...');
+                            console.log('Notification:', data.content);
+                        } else if (data.type === 'display') {
+                            // Display actual content in a NEW message
+                            let isHtml = false;
+                            let content = data.content || '';
                             
-                            // Check if response contains HTML table markup
-                            const isHtml = /(<\/?(table|tr|td|th|tbody|thead|tfoot)\b)/i.test(finalResponse);
+                            console.log('=== Display Event ===');
+                            console.log('Format:', data.format);
+                            console.log('Content Length:', content.length);
+                            console.log('Full Content:', content);
+                            console.log('Is HTML?:', data.format === 'html');
+                            console.log('================');
                             
-                            // Stream the final response content
-                            await streamResponseContent(botMessageId, finalResponse, isHtml);
-
-                            if (recommendedQuestions.length > 0) {
-                                displaySuggestedQuestions(recommendedQuestions);
+                            // Determine if content is HTML based on format field
+                            if (data.format === 'html') {
+                                isHtml = true;
+                            } else if (data.format === 'text') {
+                                isHtml = false;
+                            } else if (data.format === 'file') {
+                                isHtml = false; // Handle file format if needed
                             }
+                            
+                            // Create a NEW message for this display
+                            const displayMessageId = addMessage('', 'bot');
+                            console.log('Created display message:', displayMessageId);
+                            
+                            // Stream the display content
+                            console.log('About to stream:', { messageId: displayMessageId, isHtml, contentLength: content.length });
+                            await streamResponseContent(displayMessageId, content, isHtml);
                         }
                     } catch (e) {
                         console.error('Error parsing event:', e);
@@ -312,17 +327,20 @@ async function sendMessage() {
                     const eventText = line.substring(6);
                     const data = JSON.parse(eventText);
                     
-                    if (data.type === 'final_response') {
-                        const responseData = JSON.parse(data.content);
-                        const finalResponse = responseData.response;
-                        const recommendedQuestions = responseData.recommend_next_questions || [];
-
-                        const isHtml = /(<\/?(table|tr|td|th|tbody|thead|tfoot)\b)/i.test(finalResponse);
-                        await streamResponseContent(botMessageId, finalResponse, isHtml);
-
-                        if (recommendedQuestions.length > 0) {
-                            displaySuggestedQuestions(recommendedQuestions);
+                    if (data.type === 'notification') {
+                        updateNotificationText(botMessageId, data.content || '<đang xử lý>...');
+                    } else if (data.type === 'display') {
+                        let isHtml = false;
+                        let content = data.content || '';
+                        
+                        if (data.format === 'html') {
+                            isHtml = true;
+                        } else if (data.format === 'text') {
+                            isHtml = false;
                         }
+                        
+                        const displayMessageId = addMessage('', 'bot');
+                        await streamResponseContent(displayMessageId, content, isHtml);
                     }
                 } catch (e) {
                     console.error('Error parsing final event:', e);
@@ -334,6 +352,10 @@ async function sendMessage() {
         console.error('Error:', error);
         // Stop timer on error
         stopTimer(botMessageId);
+        // Remove processing class if still there
+        const messageDiv = document.getElementById(botMessageId);
+        if (messageDiv) messageDiv.classList.remove('processing');
+        
         if (error.name === 'AbortError') {
             updateMessage(botMessageId, 'Đã dừng xử lý.');
         } else {
@@ -341,6 +363,8 @@ async function sendMessage() {
         }
         setSendMode();
     } finally {
+        // Clear notification text, keep only timer
+        clearNotificationText(botMessageId);
         // Stop timer on completion
         stopTimer(botMessageId);
         setSendMode();
@@ -375,7 +399,6 @@ function updateMessage(messageId, text) {
 }
 
 // Show processing UI for intermediate agent messages (spinner + text)
-// Show processing UI for intermediate agent messages (spinner + dynamic text)
 function showProcessing(messageId, text) {
     const messageDiv = document.getElementById(messageId);
     if (messageDiv) {
@@ -385,6 +408,49 @@ function showProcessing(messageId, text) {
             pElement.innerHTML = '<span class="spinner"></span><span class="processing-text">' + safeText + '</span>';
         }
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+}
+
+// Update only the notification text, preserve timer
+function updateNotificationText(messageId, text) {
+    const messageDiv = document.getElementById(messageId);
+    if (messageDiv) {
+        const pElement = messageDiv.querySelector('p');
+        if (pElement) {
+            // Find or create spinner
+            let spinner = pElement.querySelector('.spinner');
+            if (!spinner) {
+                spinner = document.createElement('span');
+                spinner.className = 'spinner';
+                pElement.insertBefore(spinner, pElement.firstChild);
+            }
+            
+            // Update or create processing-text
+            let processingText = pElement.querySelector('.processing-text');
+            if (!processingText) {
+                processingText = document.createElement('span');
+                processingText.className = 'processing-text';
+                pElement.appendChild(processingText);
+            }
+            
+            processingText.textContent = text || '<đang xử lý>...';
+        }
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+}
+
+// Clear notification text but keep timer
+function clearNotificationText(messageId) {
+    const messageDiv = document.getElementById(messageId);
+    if (messageDiv) {
+        const pElement = messageDiv.querySelector('p');
+        if (pElement) {
+            // Remove spinner and processing-text
+            const spinner = pElement.querySelector('.spinner');
+            const processingText = pElement.querySelector('.processing-text');
+            if (spinner) spinner.remove();
+            if (processingText) processingText.remove();
+        }
     }
 }
 
@@ -400,9 +466,18 @@ async function streamResponseContent(messageId, content, isHtml) {
     if (!pElement) return;
     
     if (isHtml) {
-        // For HTML (tables), render it all at once but with a small delay for smoothness
+        // For HTML (tables), render it all at once
         await new Promise(resolve => setTimeout(resolve, 50));
-        pElement.innerHTML = sanitizeHtml(content);
+        const sanitized = sanitizeHtml(content);
+        console.log('Sanitized HTML:', sanitized.substring(0, 200));
+        pElement.innerHTML = sanitized;
+        // Ensure table doesn't overflow
+        const table = pElement.querySelector('table');
+        if (table) {
+            table.style.maxWidth = '100%';
+            table.style.overflow = 'auto';
+            console.log('Table found and styled');
+        }
     } else {
         // For text, stream line by line
         pElement.innerHTML = '';
