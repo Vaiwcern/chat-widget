@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Widget</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Chat Widget Demo Page</h1>
+
+    <!-- Chat Toggle Button -->
+    <div class="chat-toggle">
+        <img src="assets/icon.svg" alt="Chat Icon">
+    </div>
+
+    <!-- Chat Widget Container -->
+    <div class="chat-widget-container">
+        <div class="chat-header">
+            <h2>Chat</h2>
+            <span class="close-btn">&times;</span>
+        </div>
+        <div class="chat-messages">
+            <!-- Messages will be appended here by JavaScript -->
+        </div>
+        <div class="chat-input-container">
+            <input type="text" id="chat-input" placeholder="Type a message...">
+            <button id="send-btn">Send</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
